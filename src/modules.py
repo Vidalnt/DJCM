@@ -110,7 +110,7 @@ class EncoderBlock(nn.Module):
         for i in range(n_blocks - 1):
             self.conv.append(ResConvBlock(out_channels, out_channels, bias))
         if kernel_size is not None:
-            self.pool = nn.MaxPool2d(kernel_size)
+            self.pool = nn.AvgPool2d(kernel_size)
         else:
             self.pool = None
 
@@ -217,6 +217,7 @@ class PE_Decoder(nn.Module):
     def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False):
         super(PE_Decoder, self).__init__()
         self.de_blocks = Decoder(n_blocks, gate)
+        self.tf = TimbreFilter([(32, 0), (64, 0), (128, 0), (256, 0), (384, 0), (384, 0)])
         self.after_conv1 = EncoderBlock(32, 32, n_blocks, None, False)
         self.after_conv2 = nn.Conv2d(32, 1, (1, 1))
         init_layer(self.after_conv2)
@@ -239,7 +240,21 @@ class PE_Decoder(nn.Module):
             )
 
     def forward(self, x, concat_tensors):
-        x = self.de_blocks(x, concat_tensors)
+        ft = self.tf(concat_tensors)
+        x = self.de_blocks(x, ft)
         x = self.after_conv2(self.after_conv1(x))
         x = self.fc(x).squeeze(1)
         return x
+
+class TimbreFilter(nn.Module):
+    def __init__(self, latent_rep_channels):
+        super(TimbreFilter, self).__init__()
+        self.layers = nn.ModuleList()
+        for latent_rep in latent_rep_channels:
+            self.layers.append(ResConvBlock(latent_rep[0], latent_rep[0]))
+
+    def forward(self, x_tensors):
+        out_tensors = []
+        for i, layer in enumerate(self.layers):
+            out_tensors.append(layer(x_tensors[i]))
+        return out_tensors

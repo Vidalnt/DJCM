@@ -14,7 +14,6 @@ from evaluate import evaluate
 def train(weight_pe):
     alpha = 10
     gamma = 0
-    in_channels = 1
     n_blocks = 1
     latent_layers = 1
     seq_l = 2.56
@@ -48,7 +47,7 @@ def train(weight_pe):
     writer = SummaryWriter(logdir)
 
     if resume_iteration is None:
-        model = DJCM(in_channels, n_blocks, hop_length, latent_layers, seq_frames)
+        model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
         model = nn.DataParallel(model).to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
