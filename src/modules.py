@@ -213,6 +213,19 @@ class LatentBlocks(nn.Module):
             x = layer(x)
         return x
 
+class TimbreFilter(nn.Module):
+    def __init__(self, latent_rep_channels):
+        super(TimbreFilter, self).__init__()
+        self.layers = nn.ModuleList()
+        for latent_rep in latent_rep_channels:
+            self.layers.append(ResConvBlock(latent_rep[0], latent_rep[0]))
+
+    def forward(self, x_tensors):
+        out_tensors = []
+        for i, layer in enumerate(self.layers):
+            out_tensors.append(layer(x_tensors[i]))
+        return out_tensors
+
 class PE_Decoder(nn.Module):
     def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False):
         super(PE_Decoder, self).__init__()
@@ -245,16 +258,3 @@ class PE_Decoder(nn.Module):
         x = self.after_conv2(self.after_conv1(x))
         x = self.fc(x).squeeze(1)
         return x
-
-class TimbreFilter(nn.Module):
-    def __init__(self, latent_rep_channels):
-        super(TimbreFilter, self).__init__()
-        self.layers = nn.ModuleList()
-        for latent_rep in latent_rep_channels:
-            self.layers.append(ResConvBlock(latent_rep[0], latent_rep[0]))
-
-    def forward(self, x_tensors):
-        out_tensors = []
-        for i, layer in enumerate(self.layers):
-            out_tensors.append(layer(x_tensors[i]))
-        return out_tensors
