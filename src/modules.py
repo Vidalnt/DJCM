@@ -213,23 +213,6 @@ class LatentBlocks(nn.Module):
             x = layer(x)
         return x
 
-
-class SVS_Decoder(nn.Module):
-    def __init__(self, in_channels, n_blocks, gate=False):
-        super(SVS_Decoder, self).__init__()
-        self.de_blocks = Decoder(n_blocks, gate)
-        self.after_conv1 = EncoderBlock(32, 32, n_blocks, None, False)
-        self.after_conv2 = nn.Conv2d(32, in_channels * 4, (1, 1))
-        self.init_weights()
-
-    def init_weights(self):
-        init_layer(self.after_conv2)
-
-    def forward(self, x, concat_tensors):
-        x = self.de_blocks(x, concat_tensors)
-        return self.after_conv2(self.after_conv1(x))
-
-
 class PE_Decoder(nn.Module):
     def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False):
         super(PE_Decoder, self).__init__()
@@ -260,68 +243,3 @@ class PE_Decoder(nn.Module):
         x = self.after_conv2(self.after_conv1(x))
         x = self.fc(x).squeeze(1)
         return x
-
-
-class SVS_PE_Base(nn.Module):
-    def __init__(self, in_channels, n_blocks, latent_layers, seq_frames, seq='gru', seq_layers=1):
-        super(SVS_PE_Base, self).__init__()
-        self.encoder = Encoder(in_channels, n_blocks)
-        self.svs_latent = LatentBlocks(n_blocks, latent_layers)
-        self.pe_latent = LatentBlocks(n_blocks, latent_layers)
-        self.svs_decoder = SVS_Decoder(in_channels, n_blocks)
-        self.pe_decoder = PE_Decoder(n_blocks, seq_frames, seq, seq_layers)
-
-    def forward(self, spec_m):
-        x, concat_tensors = self.encoder(spec_m)
-        pe_x = self.pe_latent(x)
-        pe_out = self.pe_decoder(pe_x, concat_tensors)
-        svs_x = self.svs_latent(x)
-        svs_out = F.pad(self.svs_decoder(svs_x, concat_tensors), pad=(0, 1))
-        return pe_out, svs_out
-
-
-class SVS_PE_MMOE(nn.Module):
-    def __init__(self, in_channels, n_blocks, latent_layers, seq_frames, expert_num=2, seq='gru', seq_layers=1):
-        super(SVS_PE_MMOE, self).__init__()
-        self.expert_num = expert_num
-        self.encoder_expert = nn.ModuleList([
-            Encoder(in_channels, n_blocks) for _ in range(expert_num)
-        ])
-        self.svs_gate = nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.PReLU(),
-            nn.Linear(512, expert_num),
-            nn.Softmax(dim=-1)
-        )
-        self.pe_gate = nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.PReLU(),
-            nn.Linear(512, expert_num),
-            nn.Softmax(dim=-1)
-        )
-        self.svs_latent = LatentBlocks(n_blocks, latent_layers)
-        self.pe_latent = LatentBlocks(n_blocks, latent_layers)
-        self.svs_decoder = SVS_Decoder(in_channels, n_blocks)
-        self.pe_decoder = PE_Decoder(n_blocks, seq_frames, seq, seq_layers)
-
-    def forward(self, spec_m):
-        x, concat_tensors = [], []
-        for layer in self.encoder_expert:
-            x_tmp, concat_tensors_tmp = layer(spec_m)
-            x.append(x_tmp)
-            concat_tensors.append(concat_tensors_tmp)
-        x = torch.stack(x, dim=-1)
-
-        svs_gate, pe_gate = self.svs_gate(spec_m).unsqueeze(-1), self.pe_gate(spec_m).unsqueeze(-1)
-        svs_concat, pe_concat = [], []
-        for i in range(len(concat_tensors[0])):
-            tmp = torch.stack([concat_tensors[j][i] for j in range(self.expert_num)], dim=-1)
-            svs_concat.append(torch.matmul(tmp, svs_gate).squeeze(-1))
-            pe_concat.append(torch.matmul(tmp, pe_gate).squeeze(-1))
-        svs_x = torch.matmul(x, svs_gate).squeeze(-1)
-        svs_x = self.svs_latent(svs_x)
-        pe_x = torch.matmul(x, pe_gate).squeeze(-1)
-        pe_x = self.pe_latent(pe_x)
-        svs_out = F.pad(self.svs_decoder(svs_x, svs_concat), pad=(0, 1))
-        pe_out = self.pe_decoder(pe_x, pe_concat)
-        return pe_out, svs_out
