@@ -70,7 +70,7 @@ def train(weight_pe):
         audio_m = data['audio_m'].to(device)
         pitch_label = data['pitch'].to(device)
 
-        # Forward pass - solo necesita audio_m para VPE
+        # Forward pass - only needs audio_m for VPE
         out_pitch = model(audio_m)
         
         # Loss - solo pitch estimation
@@ -86,7 +86,7 @@ def train(weight_pe):
         scheduler.step()
 
         # Logging
-        if i % 10 == 0:  # Log cada 10 iteraciones para reducir output
+        if i % 10 == 0:  # Log every 10 iterations to reduce output
             print(f'{i}\tloss_total: {loss_total.item():.6f}\tloss_pe: {loss_pitch.item():.6f}')
 
         writer.add_scalar('loss/loss_total', loss_total.item(), global_step=i)
