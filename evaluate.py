@@ -80,9 +80,7 @@ def evaluate(dataset, model, batch_size, hop_length, seq_l, device, path=None, p
             
             # Save with appropriate filename
             filename = data.get('file', f'prediction_{len(metrics["RPA"])}.csv')
-            if filename.endswith('_v.wav'):
-                filename = filename.replace('_v.wav', '_pitch.csv')
-            elif filename.endswith('.wav'):
+            if filename.endswith('.wav'):
                 filename = filename.replace('.wav', '_pitch.csv')
             else:
                 filename = f'{filename}_pitch.csv'
