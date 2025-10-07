@@ -1,5 +1,5 @@
 from .dataset import MIR1K
-from .model import JM_Base, JM_MMOE, DJCM
+from .model import DJCM
 from .utils import summary, cycle, to_local_average_cents
 from .inference import Inference
 from .constants import SAMPLE_RATE
