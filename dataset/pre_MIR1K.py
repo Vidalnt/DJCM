@@ -12,7 +12,8 @@ path_label_in = r'D:\联合模型\Data\MIR-1K\PitchLabel'
 path_out = r'D:\ICASSP_2024\SVSDT\dataset\MIR1K'
 
 for _, row in tqdm(df_info.iterrows()):
-    filename, _, split = row[0], row[1], row[2]
+    filename, _, split = row.iloc[0], row.iloc[1], row.iloc[2]
+    
     audio_m, sr = librosa.load(os.path.join(path_in, filename), sr=16000, mono=True)
 
     os.makedirs(os.path.join(path_out, split), exist_ok=True)
