@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchlibrosa.stft import STFT, ISTFT, magphase
 from .seq import BiGRU, BiLSTM
-from .constants import N_CLASS
+from .constants import N_CLASS, N_MELS
 
 
 def init_layer(layer: nn.Module):
@@ -236,19 +236,19 @@ class PE_Decoder(nn.Module):
         init_layer(self.after_conv2)
         if seq.lower() == 'gru':
             self.fc = nn.Sequential(
-                BiGRU((seq_frames, 1024), (1, 1024), 1, seq_layers),
-                nn.Linear(1024, N_CLASS),
+                BiGRU((seq_frames, N_MELS), (1, N_MELS), 1, seq_layers),
+                nn.Linear(N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
         elif seq.lower() == 'lstm':
             self.fc = nn.Sequential(
-                BiLSTM((seq_frames, 1024), (1, 1024), 1, seq_layers),
-                nn.Linear(1024, N_CLASS),
+                BiLSTM((seq_frames, N_MELS), (1, N_MELS), 1, seq_layers),
+                nn.Linear(N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
         else:
             self.fc = nn.Sequential(
-                nn.Linear(1024, N_CLASS),
+                nn.Linear(N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
 

@@ -105,7 +105,7 @@ class MIR1K(Dataset):
         
         # Split into sequences if sequence_length is specified
         if self.seq_len is not None:
-            n_steps = self.seq_len // self.HOP_LENGTH
+            n_steps = (self.seq_len // self.HOP_LENGTH) + 1
             
             # Create non-overlapping sequences
             for i in range(audio_l // self.seq_len):
