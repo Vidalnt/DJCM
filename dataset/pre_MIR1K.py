@@ -5,7 +5,7 @@ import librosa
 import soundfile as sf
 import numpy as np
 
-df_info = pd.read_csv(r'D:\ICASSP_2024\SVSDT\dataset\MIR1K\info.csv')
+df_info = pd.read_csv(r'D:\ICASSP_2024\SVSDT\dataset\INFO\mir1k.csv')
 hop_length = 160
 path_in = r'D:\联合模型\Data\MIR-1K\Wavfile'
 path_label_in = r'D:\联合模型\Data\MIR-1K\PitchLabel'
