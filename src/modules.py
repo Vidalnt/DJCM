@@ -3,8 +3,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchlibrosa.stft import STFT, ISTFT, magphase
-from .seq import BiGRU, BiLSTM
+from .seq import BiGRU, BiLSTM , TransformerBlock
 from .constants import N_CLASS, N_MELS
+from einops.layers.torch import Rearrange
+
+class SELayer(nn.Module):
+    """
+    Squeeze-and-Excitation block.
+    Source: "Squeeze-and-Excitation Networks" (Hu et al., 2018).
+    Purpose: Improves channel interdependencies at negligible computational cost. It acts as
+             an attention mechanism that adaptively recalibrates channel-wise feature
+             responses, allowing the model to focus on more informative channels.
+    """
+    def __init__(self, channel, reduction=16):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+class DilatedConvBlock(nn.Module):
+    """
+    Block of dilated convolutions with residual connections.
+    Source: Inspired by "WaveNet" (van den Oord et al., 2016) and Temporal
+            Convolutional Networks from "An Empirical Evaluation..." (Bai et al., 2018).
+    Purpose: Efficiently captures long-range temporal dependencies. The exponentially
+             increasing dilation rate allows the receptive field to grow rapidly, enabling
+             the model to understand broad temporal context (like melodies and phrases)
+             without the computational cost of recurrent layers.
+    """
+    def __init__(self, channels, n_blocks=3, bias=False):
+        super(DilatedConvBlock, self).__init__()
+        self.convs = nn.ModuleList()
+        for i in range(n_blocks):
+            dilation = 2 ** i
+            self.convs.append(nn.Sequential(
+                nn.PReLU(),
+                nn.BatchNorm2d(channels),
+                nn.Conv2d(channels, channels, kernel_size=3, padding=dilation, dilation=dilation, bias=bias),
+            ))
+            
+    def forward(self, x):
+        for conv in self.convs:
+            res = x
+            x = conv(x)
+            x = x + res
+        return x
 
 
 def init_layer(layer: nn.Module):
@@ -67,7 +121,7 @@ class Spec2Wav(nn.Module):
 
 
 class ResConvBlock(nn.Module):
-    def __init__(self, in_planes, planes, bias=False):
+    def __init__(self, in_planes, planes, bias=False, use_se=False):
         super(ResConvBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes, momentum=0.01)
         self.bn2 = nn.BatchNorm2d(planes, momentum=0.01)
@@ -75,6 +129,7 @@ class ResConvBlock(nn.Module):
         self.act2 = nn.PReLU()
         self.conv1 = nn.Conv2d(in_planes, planes, (3, 3), padding=(1, 1), bias=bias)
         self.conv2 = nn.Conv2d(planes, planes, (3, 3), padding=(1, 1), bias=bias)
+        self.se = SELayer(planes) if use_se else None
         if in_planes != planes:
             self.shortcut = nn.Conv2d(in_planes, planes, (1, 1))
             self.is_shortcut = True
@@ -95,6 +150,8 @@ class ResConvBlock(nn.Module):
     def forward(self, x):
         out = self.conv1(self.act1(self.bn1(x)))
         out = self.conv2(self.act2(self.bn2(out)))
+        if self.se is not None:
+            out = self.se(out)
         if self.is_shortcut:
             return self.shortcut(x) + out
         else:
@@ -102,13 +159,13 @@ class ResConvBlock(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, n_blocks, kernel_size, bias):
+    def __init__(self, in_channels, out_channels, n_blocks, kernel_size, bias, use_se=False):
         super(EncoderBlock, self).__init__()
         self.conv = nn.ModuleList([
-            ResConvBlock(in_channels, out_channels, bias)
+            ResConvBlock(in_channels, out_channels, bias, use_se)
         ])
         for i in range(n_blocks - 1):
-            self.conv.append(ResConvBlock(out_channels, out_channels, bias))
+            self.conv.append(ResConvBlock(out_channels, out_channels, bias, use_se))
         if kernel_size is not None:
             self.pool = nn.AvgPool2d(kernel_size)
         else:
@@ -123,7 +180,7 @@ class EncoderBlock(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, n_blocks, stride, bias, gate=False):
+    def __init__(self, in_channels, out_channels, n_blocks, stride, bias, gate=False, use_se=False):
         super(DecoderBlock, self).__init__()
         self.gate = gate
         if self.gate:
@@ -143,10 +200,10 @@ class DecoderBlock(nn.Module):
         self.conv1 = nn.ConvTranspose2d(in_channels, out_channels, stride, stride, (0, 0), bias=bias)
         self.bn1 = nn.BatchNorm2d(in_channels, momentum=0.01)
         self.conv = nn.ModuleList([
-            ResConvBlock(out_channels * 2, out_channels, bias)
+            ResConvBlock(out_channels * 2, out_channels, bias, use_se)
         ])
         for i in range(n_blocks - 1):
-            self.conv.append(ResConvBlock(out_channels, out_channels, bias))
+            self.conv.append(ResConvBlock(out_channels, out_channels, bias, use_se))
         self.init_weights()
 
     def init_weights(self):
@@ -164,15 +221,15 @@ class DecoderBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels, n_blocks):
+    def __init__(self, in_channels, n_blocks, use_se=False):
         super(Encoder, self).__init__()
         self.en_blocks = nn.ModuleList([
-            EncoderBlock(in_channels, 32, n_blocks, (1, 2), False),
-            EncoderBlock(32, 64, n_blocks, (1, 2), False),
-            EncoderBlock(64, 128, n_blocks, (1, 2), False),
-            EncoderBlock(128, 256, n_blocks, (1, 2), False),
-            EncoderBlock(256, 384, n_blocks, (1, 2), False),
-            EncoderBlock(384, 384, n_blocks, (1, 2), False)
+            EncoderBlock(in_channels, 32, n_blocks, (1, 2), False, use_se),
+            EncoderBlock(32, 64, n_blocks, (1, 2), False, use_se),
+            EncoderBlock(64, 128, n_blocks, (1, 2), False, use_se),
+            EncoderBlock(128, 256, n_blocks, (1, 2), False, use_se),
+            EncoderBlock(256, 384, n_blocks, (1, 2), False, use_se),
+            EncoderBlock(384, 384, n_blocks, (1, 2), False, use_se)
         ])
 
     def forward(self, x):
@@ -184,15 +241,15 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_blocks, gate=False):
+    def __init__(self, n_blocks, gate=False, use_se=False):
         super(Decoder, self).__init__()
         self.de_blocks = nn.ModuleList([
-            DecoderBlock(384, 384, n_blocks, (1, 2), False, gate),
-            DecoderBlock(384, 384, n_blocks, (1, 2), False, gate),
-            DecoderBlock(384, 256, n_blocks, (1, 2), False, gate),
-            DecoderBlock(256, 128, n_blocks, (1, 2), False, gate),
-            DecoderBlock(128, 64, n_blocks, (1, 2), False, gate),
-            DecoderBlock(64, 32, n_blocks, (1, 2), False, gate),
+            DecoderBlock(384, 384, n_blocks, (1, 2), False, gate, use_se),
+            DecoderBlock(384, 384, n_blocks, (1, 2), False, gate, use_se),
+            DecoderBlock(384, 256, n_blocks, (1, 2), False, gate, use_se),
+            DecoderBlock(256, 128, n_blocks, (1, 2), False, gate, use_se),
+            DecoderBlock(128, 64, n_blocks, (1, 2), False, gate, use_se),
+            DecoderBlock(64, 32, n_blocks, (1, 2), False, gate, use_se),
         ])
 
     def forward(self, x, concat_tensors):
@@ -202,23 +259,30 @@ class Decoder(nn.Module):
 
 
 class LatentBlocks(nn.Module):
-    def __init__(self, n_blocks, latent_layers):
+    def __init__(self, n_blocks, latent_layers, use_dilated_conv=False):
         super(LatentBlocks, self).__init__()
-        self.latent_blocks = nn.ModuleList([])
-        for i in range(latent_layers):
-            self.latent_blocks.append(EncoderBlock(384, 384, n_blocks, None, False))
+        self.use_dilated_conv = use_dilated_conv
+        if use_dilated_conv:
+            self.latent_blocks = DilatedConvBlock(channels=384, n_blocks=latent_layers)
+        else:
+            self.latent_blocks = nn.ModuleList([])
+            for i in range(latent_layers):
+                self.latent_blocks.append(EncoderBlock(384, 384, n_blocks, None, False))
 
     def forward(self, x):
-        for layer in self.latent_blocks:
-            x = layer(x)
-        return x
+        if self.use_dilated_conv:
+            return self.latent_blocks(x)
+        else:
+            for layer in self.latent_blocks:
+                x = layer(x)
+            return x
 
 class TimbreFilter(nn.Module):
-    def __init__(self, latent_rep_channels):
+    def __init__(self, latent_rep_channels, use_se=False):
         super(TimbreFilter, self).__init__()
         self.layers = nn.ModuleList()
         for latent_rep in latent_rep_channels:
-            self.layers.append(ResConvBlock(latent_rep[0], latent_rep[0]))
+            self.layers.append(ResConvBlock(latent_rep[0], latent_rep[0], use_se=use_se))
 
     def forward(self, x_tensors):
         out_tensors = []
@@ -227,11 +291,11 @@ class TimbreFilter(nn.Module):
         return out_tensors
 
 class PE_Decoder(nn.Module):
-    def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False):
+    def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False, use_se=False):
         super(PE_Decoder, self).__init__()
-        self.de_blocks = Decoder(n_blocks, gate)
-        self.tf = TimbreFilter([(32, 0), (64, 0), (128, 0), (256, 0), (384, 0), (384, 0)])
-        self.after_conv1 = EncoderBlock(32, 32, n_blocks, None, False)
+        self.de_blocks = Decoder(n_blocks, gate, use_se=use_se)
+        self.tf = TimbreFilter([(32, 0), (64, 0), (128, 0), (256, 0), (384, 0), (384, 0)], use_se=use_se)
+        self.after_conv1 = EncoderBlock(32, 32, n_blocks, None, False, use_se=use_se)
         self.after_conv2 = nn.Conv2d(32, 1, (1, 1))
         init_layer(self.after_conv2)
         if seq.lower() == 'gru':
@@ -246,8 +310,20 @@ class PE_Decoder(nn.Module):
                 nn.Linear(N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
+        elif seq.lower() == "transformer":
+            self.fc = nn.Sequential(
+                TransformerBlock(
+                    input_dim=N_MELS, 
+                    n_heads=8, 
+                    dim_feedforward=N_MELS * 4,
+                    n_layers=2
+                ),
+                nn.Linear(N_MELS, N_CLASS),
+                nn.Sigmoid()
+            )
         else:
             self.fc = nn.Sequential(
+                Rearrange('b c t f -> b t (c f)'),
                 nn.Linear(N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
@@ -256,5 +332,7 @@ class PE_Decoder(nn.Module):
         ft = self.tf(concat_tensors)
         x = self.de_blocks(x, ft)
         x = self.after_conv2(self.after_conv1(x))
-        x = self.fc(x).squeeze(1)
+        x = self.fc(x)
+        if x.dim() == 4 and x.size(1) == 1:
+             x = x.squeeze(1)
         return x

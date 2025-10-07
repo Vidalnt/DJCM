@@ -36,6 +36,31 @@ class BiLSTM(nn.Module):
     def forward(self, x):
         return self.lstm(x)[0]
 
+class TransformerBlock(nn.Module):
+    """
+    Wrapper for PyTorch's TransformerEncoder based on self-attention.
+    Source: "Attention Is All You Need" (Vaswani et al., 2017). This implementation
+            leverages PyTorch's native, optimized components.
+    Purpose: Captures global context by relating every element in a sequence to every
+             other element. Self-attention allows the model to learn complex, long-range
+             dependencies regardless of their distance, overcoming the limitations of
+             recurrent and purely convolutional models for sequence understanding.
+    """
+    def __init__(self, in_channels, n_mels, seq_frames, n_heads, dim_feedforward, n_layers, dropout=0.1):
+        super(TransformerBlock, self).__init__()
+        self.rearrange = Rearrange('b c t f -> b t (c f)')
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=in_channels * n_mels, 
+            nhead=n_heads, 
+            dim_feedforward=dim_feedforward, 
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+
+    def forward(self, x):
+        x = self.rearrange(x)
+        return self.transformer_encoder(x)
 
 # helpers
 def pair(t):

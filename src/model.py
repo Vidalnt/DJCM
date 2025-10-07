@@ -6,7 +6,7 @@ from .spec import MelSpectrogram
 
 
 class DJCM(nn.Module):
-    def __init__(self, n_blocks, hop_length, latent_layers, seq_frames, gate=False, seq='gru', seq_layers=1):
+    def __init__(self, n_blocks, hop_length, latent_layers, seq_frames, gate=False, seq='gru', seq_layers=1, use_se=False, use_dilated_conv=False):
         super(DJCM, self).__init__()
         self.to_spec = MelSpectrogram(
             n_mel_channels=N_MELS,
@@ -19,9 +19,9 @@ class DJCM(nn.Module):
         )
         #self.bn = nn.BatchNorm2d(N_MELS, momentum=0.01)
         #init_bn(self.bn)
-        self.pe_encoder = Encoder(1, n_blocks)
-        self.pe_latent = LatentBlocks(n_blocks, latent_layers)
-        self.pe_decoder = PE_Decoder(n_blocks, seq_frames, seq, seq_layers, gate)
+        self.pe_encoder = Encoder(1, n_blocks, use_se=use_se)
+        self.pe_latent = LatentBlocks(n_blocks, latent_layers, use_dilated_conv=use_dilated_conv)
+        self.pe_decoder = PE_Decoder(n_blocks, seq_frames, seq, seq_layers, gate, use_se=use_se)
 
     def forward(self, audio_m):
         log_mel_spec = self.to_spec(audio_m.squeeze(1))
