@@ -41,21 +41,29 @@ class MIR1K(Dataset):
         """
         Get audio mixture and label files (no vocal separation files needed)
         """
-        audio_m_files = glob(os.path.join(self.path, group, '*_m.wav'))
-        label_files = [f.replace('_m.wav', '.pv') for f in audio_m_files]
+        audio_mir1k_files = glob(os.path.join(self.path, group, '*_m.wav'))
+        audio_ptdb_files = glob(os.path.join(self.path, group, '*_p.wav'))
+        all_audio_files = sorted(audio_mir1k_files + audio_ptdb_files)
+
+        label_files = []
+        for f in all_audio_files:
+            if f.endswith('_m.wav'):
+                label_files.append(f.replace('_m.wav', '.pv'))
+            elif f.endswith('_p.wav'):
+                label_files.append(f.replace('_p.wav', '.pv'))
         
         # Verify label files exist
         assert all(os.path.isfile(label_file) for label_file in label_files), \
             "Some label files are missing"
         
-        return sorted(zip(audio_m_files, label_files))
+        return zip(all_audio_files, label_files)
 
-    def load(self, audio_m_path, label_path):
+    def load(self, audio_path, label_path):
         """
         Load mixture audio and pitch labels only
         
         Args:
-            audio_m_path: Path to mixture audio file
+            audio_path: Path to mixture audio file
             label_path: Path to pitch label file (.pv)
             
         Returns:
@@ -64,7 +72,7 @@ class MIR1K(Dataset):
         data = []
         
         # Load mixture audio
-        audio_m, _ = librosa.load(audio_m_path, sr=SAMPLE_RATE)
+        audio_m, _ = librosa.load(audio_path, sr=SAMPLE_RATE)
         if audio_m.ndim == 1:
             audio_m = np.array([audio_m])
         audio_m = torch.from_numpy(audio_m)
@@ -81,8 +89,10 @@ class MIR1K(Dataset):
             lines = f.readlines()
             for i, line in enumerate(lines):
                 if float(line) != 0:
-                    # Convert MIDI note to frequency
-                    freq = 440 * (2.0 ** ((float(line) - 69.0) / 12.0))
+                    if audio_path.endswith('_m.wav'):
+                        freq = 440 * (2.0 ** ((float(line) - 69.0) / 12.0))
+                    elif audio_path.endswith('_p.wav'):
+                        freq = float(line)
                     # Convert frequency to cents
                     cent = 1200 * np.log2(freq / 10)
                     # Quantize to pitch bin
@@ -108,7 +118,7 @@ class MIR1K(Dataset):
                     audio_m=audio_m[:, begin_t:end_t],
                     pitch=pitch_label[begin_step:end_step],
                     voice=voice_label[begin_step:end_step],
-                    file=os.path.basename(audio_m_path)
+                    file=os.path.basename(audio_path)
                 ))
             
             # Add last sequence (may overlap with previous)
@@ -116,7 +126,7 @@ class MIR1K(Dataset):
                 audio_m=audio_m[:, -self.seq_len:],
                 pitch=pitch_label[-n_steps:],
                 voice=voice_label[-n_steps:],
-                file=os.path.basename(audio_m_path)
+                file=os.path.basename(audio_path)
             ))
         else:
             # Full-length sample
@@ -124,7 +134,7 @@ class MIR1K(Dataset):
                 audio_m=audio_m,
                 pitch=pitch_label,
                 voice=voice_label,
-                file=os.path.basename(audio_m_path)
+                file=os.path.basename(audio_path)
             ))
         
         return data
