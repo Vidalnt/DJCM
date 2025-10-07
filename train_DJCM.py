@@ -54,9 +54,21 @@ def train(weight_pe):
         resume_iteration = 0
     else:
         model_path = os.path.join(logdir, f'model-{resume_iteration}.pt')
-        model = torch.load(model_path)
-        optimizer = torch.optim.Adam(model.parameters(), learning_rate)
-        optimizer.load_state_dict(torch.load(os.path.join(logdir, 'last-optimizer-state.pt')))
+        if not os.path.exists(model_path):
+            print(f'Warning: Model file {model_path} not found. Starting from scratch.')
+            resume_iteration = 0
+            model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
+            model = nn.DataParallel(model).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), learning_rate)
+        else:
+            model = torch.load(model_path)
+            optimizer = torch.optim.Adam(model.parameters(), learning_rate)
+            optimizer_path = os.path.join(logdir, 'last-optimizer-state.pt')
+            if os.path.exists(optimizer_path):
+                optimizer.load_state_dict(torch.load(optimizer_path))
+            else:
+                print(f'Warning: Optimizer state file not found. Using fresh optimizer.')
+
 
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
     summary(model)
