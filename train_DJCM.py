@@ -17,7 +17,7 @@ def train(weight_pe):
     n_blocks = 1
     latent_layers = 1
     seq_l = 2.56
-    hop_length = 20
+    hop_length = 160
     seq_frames = int(seq_l * 1000 / hop_length)
     logdir = 'runs/MIR1K_VPE_Only/' + 'nblocks' + str(n_blocks) + '_latent' + str(latent_layers) + '_frames' + str(seq_frames) \
              + '_alpha' + str(alpha) + '_gamma' + str(gamma) + '_pe' + str(weight_pe) + '_gateT'
