@@ -62,9 +62,16 @@ def train(weight_pe):
     summary(model)
 
     best_rpa, best_rca, best_it = 0, 0, 0
+    data_iterator = cycle(data_loader)
+
+    if resume_iteration > 0:
+        print(f"Resuming from iteration {resume_iteration}. Syncing DataLoader...")
+        for _ in tqdm(range(resume_iteration), desc="Syncing data"):
+            next(data_iterator)
+
     loop = tqdm(range(resume_iteration + 1, iterations + 1))
 
-    for i, data in zip(loop, cycle(data_loader)):
+    for i, data in zip(loop, data_iterator):
         model.train()
         
         audio_m = data['audio_m'].to(device)
