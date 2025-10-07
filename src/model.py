@@ -17,15 +17,15 @@ class DJCM(nn.Module):
             mel_fmin=MEL_FMIN,
             mel_fmax=MEL_FMAX,
         )
-        self.bn = nn.BatchNorm2d(N_MELS, momentum=0.01)
-        init_bn(self.bn)
-        self.pe_encoder = Encoder(N_MELS, n_blocks)
+        #self.bn = nn.BatchNorm2d(N_MELS, momentum=0.01)
+        #init_bn(self.bn)
+        self.pe_encoder = Encoder(1, n_blocks)
         self.pe_latent = LatentBlocks(n_blocks, latent_layers)
         self.pe_decoder = PE_Decoder(n_blocks, seq_frames, seq, seq_layers, gate)
 
     def forward(self, audio_m):
         log_mel_spec = self.to_spec(audio_m.squeeze(1))
-        x = log_mel_spec.unsqueeze(-1)
+        x = log_mel_spec.transpose(-1, -2).unsqueeze(1)
         x, concat_tensors = self.pe_encoder(x)
         x = self.pe_latent(x)
         pe_out = self.pe_decoder(x, concat_tensors)
