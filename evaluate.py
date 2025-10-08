@@ -57,18 +57,23 @@ def evaluate(dataset, model, batch_size, hop_length, seq_l, device, path=None, p
         time_slice = np.array([i * hop_length / SAMPLE_RATE for i in range(len(freqs))])
         
         # Pitch accuracy metrics
-        ref_v, ref_c, est_v, est_c = to_cent_voicing(time_slice, freqs, time_slice, freqs_pred)
-        rpa = raw_pitch_accuracy(ref_v, ref_c, est_v, est_c)
-        rca = raw_chroma_accuracy(ref_v, ref_c, est_v, est_c)
-        oa = overall_accuracy(ref_v, ref_c, est_v, est_c)
-        vfa = voicing_false_alarm(ref_v, est_v)
-        vr = voicing_recall(ref_v, est_v)
-        
-        metrics['RPA'].append(rpa)
-        metrics['RCA'].append(rca)
-        metrics['OA'].append(oa)
-        metrics['VFA'].append(vfa)
-        metrics['VR'].append(vr)
+        try:
+            ref_v, ref_c, est_v, est_c = to_cent_voicing(time_slice, freqs, time_slice, freqs_pred)
+            rpa = raw_pitch_accuracy(ref_v, ref_c, est_v, est_c)
+            rca = raw_chroma_accuracy(ref_v, ref_c, est_v, est_c)
+            oa = overall_accuracy(ref_v, ref_c, est_v, est_c)
+            vfa = voicing_false_alarm(ref_v, est_v)
+            vr = voicing_recall(ref_v, est_v)
+            
+            metrics['RPA'].append(rpa)
+            metrics['RCA'].append(rca)
+            metrics['OA'].append(oa)
+            metrics['VFA'].append(vfa)
+            metrics['VR'].append(vr)
+
+        except Exception as e:
+            print(f'ERROR [{filename}]: {str(e)}')
+            continue
         
         # Save predictions if path provided
         if path is not None:
