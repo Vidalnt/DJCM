@@ -2,10 +2,12 @@ import os
 import librosa
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from glob import glob
 from .constants import *
+
 
 
 class MIR1K(Dataset):
@@ -71,20 +73,17 @@ class MIR1K(Dataset):
         """
         data = []
         
-        # Load mixture audio
         audio_m, _ = librosa.load(audio_path, sr=SAMPLE_RATE)
         if audio_m.ndim == 1:
             audio_m = np.array([audio_m])
         audio_m = torch.from_numpy(audio_m)
         
-        audio_l = audio_m.shape[-1]
-        audio_steps = audio_l // self.HOP_LENGTH + 1
+        original_audio_l = audio_m.shape[-1]
+        original_audio_steps = original_audio_l // self.HOP_LENGTH + 1
         
-        # Initialize pitch and voice labels
-        pitch_label = torch.zeros(audio_steps, self.num_class, dtype=torch.float)
-        voice_label = torch.zeros(audio_steps, dtype=torch.float)
+        pitch_label = torch.zeros(original_audio_steps, self.num_class, dtype=torch.float)
+        voice_label = torch.zeros(original_audio_steps, dtype=torch.float)
         
-        # Load pitch annotations
         with open(label_path, 'r') as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -93,45 +92,53 @@ class MIR1K(Dataset):
                         freq = 440 * (2.0 ** ((float(line) - 69.0) / 12.0))
                     elif audio_path.endswith('_p.wav'):
                         freq = float(line)
-                    # Convert frequency to cents
+
                     cent = 1200 * np.log2(freq / 10)
-                    # Quantize to pitch bin
                     index = int(round((cent - CONST) / 20))
                     
-                    # Ensure index is within valid range
-                    if 0 <= index < self.num_class and i < audio_steps:
+                    if 0 <= index < self.num_class and i < original_audio_steps:
                         pitch_label[i][index] = 1
                         voice_label[i] = 1
         
+        final_audio_m = audio_m
+        if self.seq_len is not None:
+            if original_audio_l < self.seq_len:
+                pad_samples = self.seq_len - original_audio_l
+                final_audio_m = F.pad(audio_m, (0, pad_samples), "constant", 0)
+                target_steps = (self.seq_len // self.HOP_LENGTH) + 1
+                pad_steps = target_steps - original_audio_steps
+                
+                if pad_steps > 0:
+                    pitch_label = F.pad(pitch_label, (0, 0, 0, pad_steps), "constant", 0)
+                    voice_label = F.pad(voice_label, (0, pad_steps), "constant", 0)
         # Split into sequences if sequence_length is specified
         if self.seq_len is not None:
             n_steps = (self.seq_len // self.HOP_LENGTH) + 1
+            audio_l_padded = final_audio_m.shape[-1]
             
-            # Create non-overlapping sequences
-            for i in range(audio_l // self.seq_len):
+            for i in range(audio_l_padded // self.seq_len):
                 begin_t = i * self.seq_len
                 end_t = begin_t + self.seq_len
                 begin_step = begin_t // self.HOP_LENGTH
                 end_step = begin_step + n_steps
                 
                 data.append(dict(
-                    audio_m=audio_m[:, begin_t:end_t],
+                    audio_m=final_audio_m[:, begin_t:end_t],
                     pitch=pitch_label[begin_step:end_step],
                     voice=voice_label[begin_step:end_step],
                     file=os.path.basename(audio_path)
                 ))
             
-            # Add last sequence (may overlap with previous)
-            data.append(dict(
-                audio_m=audio_m[:, -self.seq_len:],
-                pitch=pitch_label[-n_steps:],
-                voice=voice_label[-n_steps:],
-                file=os.path.basename(audio_path)
-            ))
+            if audio_l_padded % self.seq_len != 0:
+                data.append(dict(
+                    audio_m=final_audio_m[:, -self.seq_len:],
+                    pitch=pitch_label[-n_steps:],
+                    voice=voice_label[-n_steps:],
+                    file=os.path.basename(audio_path)
+                ))
         else:
-            # Full-length sample
             data.append(dict(
-                audio_m=audio_m,
+                audio_m=final_audio_m,
                 pitch=pitch_label,
                 voice=voice_label,
                 file=os.path.basename(audio_path)
