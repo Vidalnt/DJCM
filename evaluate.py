@@ -72,6 +72,7 @@ def evaluate(dataset, model, batch_size, hop_length, seq_l, device, path=None, p
             metrics['VR'].append(vr)
 
         except Exception as e:
+            filename = data.get('file')
             print(f'ERROR [{filename}]: {str(e)}')
             continue
         
