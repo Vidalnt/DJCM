@@ -71,6 +71,13 @@ def train(weight_pe):
 
 
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
+    if resume_iteration > 0:
+        scheduler_path = os.path.join(logdir, 'last-scheduler-state.pt')
+        if os.path.exists(scheduler_path):
+            scheduler.load_state_dict(torch.load(scheduler_path))
+        else:
+            print(f'Warning: Scheduler state file not found. Using fresh scheduler state.')
+
     summary(model)
 
     best_rpa, best_rca, best_it = 0, 0, 0
@@ -135,6 +142,7 @@ def train(weight_pe):
                     
                     torch.save(model, os.path.join(logdir, f'model-{i}.pt'))
                     torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
+                    torch.save(scheduler.state_dict(), os.path.join(logdir, 'last-scheduler-state.pt'))
 
         if i - best_it >= epoch_nums * early_stop_epochs:
             print(f'Early stopping at iteration {i}')
