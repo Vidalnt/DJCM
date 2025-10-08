@@ -28,7 +28,7 @@ for _, row in tqdm(df_info.iterrows()):
     
     audio_m, _ = librosa.load(os.path.join(path_in_root, relative_path), sr=sr, mono=True)
     os.makedirs(os.path.join(path_out, split), exist_ok=True)
-    sf.write(os.path.join(path_out, split, f"{base_filename}_m.wav"),
+    sf.write(os.path.join(path_out, split, f"{base_filename}_p.wav"),
              audio_m.T, sr, 'PCM_24')
     
     item_data = metadata[item_name]
