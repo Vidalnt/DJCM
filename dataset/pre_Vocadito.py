@@ -24,8 +24,7 @@ for _, row in tqdm(df_info.iterrows(), total=len(df_info)):
     pv_in = os.path.join(path_in, label_path)
     pv_out = os.path.join(path_out, split, f"{out_filename}.pv")
    
-    f0_df = pd.read_csv(pv_in)
-    f0 = f0_df['frequency'].values
+    f0 = np.loadtxt(pv_in, delimiter=',', usecols=1)
    
     f0 = np.nan_to_num(f0)
     f0[f0 < 0] = 0.0
