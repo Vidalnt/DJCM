@@ -18,7 +18,7 @@ for _, row in tqdm(df_info.iterrows(), total=len(df_info)):
     os.makedirs(os.path.join(path_out, split), exist_ok=True)
    
     out_filename = os.path.splitext(os.path.basename(filename))[0]
-    sf.write(os.path.join(path_out, split, f"{out_filename}_m.wav"),
+    sf.write(os.path.join(path_out, split, f"{out_filename}_p.wav"),
              audio_m.T, sr, 'PCM_24')
    
     pv_in = os.path.join(path_in, label_path)
