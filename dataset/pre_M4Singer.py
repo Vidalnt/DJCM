@@ -7,7 +7,6 @@ import soundfile as sf
 import numpy as np
 import torch
 import torchcrepe
-from scipy.signal import medfilt 
 
 csv_file = r'D:\ICASSP_2024\SVSDT\dataset\INFO\m4singer.csv'
 path_in_root = r'D:\Dataset\m4singer\m4singer'
@@ -32,7 +31,6 @@ else:
     batch_size = 512
 
 periodicity_threshold = 0.21
-median_filter_size = 3
 
 with open(os.path.join(path_in_root, 'meta.json'), 'r', encoding='utf-8') as f:
     metadata = {item['item_name']: item for item in json.load(f)}
@@ -61,9 +59,6 @@ for _, row in tqdm(df_info.iterrows(), total=len(df_info)):
     f0_sequence = pitch.squeeze(0).cpu().numpy()
     confidence = periodicity.squeeze(0).cpu().numpy()
     f0_sequence[confidence < periodicity_threshold] = 0.0
-
-    if median_filter_size > 1:
-        f0_sequence = medfilt(f0_sequence, kernel_size=median_filter_size)
     
     item_data = metadata[item_name]
     n_frames = f0_sequence.shape[0]
