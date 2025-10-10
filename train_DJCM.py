@@ -64,34 +64,29 @@ def train(weight_pe):
     os.makedirs(logdir, exist_ok=True)
     writer = SummaryWriter(logdir)
     
+    model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
+    model = nn.DataParallel(model).to(device)
+   
     if resume_iteration is None:
         print("Starting training from scratch")
-        model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
-        model = nn.DataParallel(model).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else:
         print(f"Resuming training from iteration {resume_iteration}")
         model_path = os.path.join(logdir, f'model-{resume_iteration}.pt')
+        checkpoint = torch.load(model_path, map_location=device)
+        model.load_state_dict(checkpoint)
+    
+    optimizer = torch.optim.Adam(model.parameters(), learning_rate)
+    scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
+   
+    if resume_iteration > 0:
         optimizer_path = os.path.join(logdir, f'optimizer-{resume_iteration}.pt')
         scheduler_path = os.path.join(logdir, f'scheduler-{resume_iteration}.pt')
-        
-        checkpoint = torch.load(model_path, map_location=device)
-        model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
-        model = nn.DataParallel(model).to(device)
-        model.load_state_dict(checkpoint)
-        
-        optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         if os.path.exists(optimizer_path):
             optimizer.load_state_dict(torch.load(optimizer_path))
             print(f"Loaded optimizer state from iteration {resume_iteration}")
         else:
             print(f'Warning: Optimizer state file not found. Using fresh optimizer.')
-    
-    scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
-    
-    if resume_iteration > 0:
-        scheduler_path = os.path.join(logdir, f'scheduler-{resume_iteration}.pt')
         if os.path.exists(scheduler_path):
             scheduler.load_state_dict(torch.load(scheduler_path))
             print(f"Loaded scheduler state from iteration {resume_iteration}")
