@@ -7,8 +7,26 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import numpy as np
+import re
 from src import MIR1K, cycle, summary, DJCM, FL , SAMPLE_RATE
 from evaluate import evaluate
+
+def find_latest_iteration(logdir):
+    """Find the latest iteration checkpoint in the log directory."""
+    if not os.path.exists(logdir):
+        return None
+    
+    model_files = [f for f in os.listdir(logdir) if f.startswith('model-') and f.endswith('.pt')]
+    if not model_files:
+        return None
+    
+    iterations = []
+    for f in model_files:
+        match = re.search(r'model-(\d+)\.pt', f)
+        if match:
+            iterations.append(int(match.group(1)))
+    
+    return max(iterations) if iterations else None
 
 def train(weight_pe):
     alpha = 10
@@ -40,42 +58,52 @@ def train(weight_pe):
     print('epoch_nums:', epoch_nums)
     learning_rate_decay_steps = len(data_loader) * learning_rate_decay_epochs
     iterations = epoch_nums * train_epochs
-    resume_iteration = None
+    
+    resume_iteration = find_latest_iteration(logdir)
+    
     os.makedirs(logdir, exist_ok=True)
     writer = SummaryWriter(logdir)
+    
     if resume_iteration is None:
+        print("Starting training from scratch")
         model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
         model = nn.DataParallel(model).to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else:
+        print(f"Resuming training from iteration {resume_iteration}")
         model_path = os.path.join(logdir, f'model-{resume_iteration}.pt')
-        if not os.path.exists(model_path):
-            print(f'Warning: Model file {model_path} not found. Starting from scratch.')
-            resume_iteration = 0
-            model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
-            model = nn.DataParallel(model).to(device)
-            optimizer = torch.optim.Adam(model.parameters(), learning_rate)
+        optimizer_path = os.path.join(logdir, f'optimizer-{resume_iteration}.pt')
+        scheduler_path = os.path.join(logdir, f'scheduler-{resume_iteration}.pt')
+        
+        checkpoint = torch.load(model_path, map_location=device)
+        model = DJCM(n_blocks, hop_length, latent_layers, seq_frames)
+        model = nn.DataParallel(model).to(device)
+        model.load_state_dict(checkpoint)
+        
+        optimizer = torch.optim.Adam(model.parameters(), learning_rate)
+        if os.path.exists(optimizer_path):
+            optimizer.load_state_dict(torch.load(optimizer_path))
+            print(f"Loaded optimizer state from iteration {resume_iteration}")
         else:
-            model = torch.load(model_path)
-            optimizer = torch.optim.Adam(model.parameters(), learning_rate)
-            optimizer_path = os.path.join(logdir, 'last-optimizer-state.pt')
-            if os.path.exists(optimizer_path):
-                optimizer.load_state_dict(torch.load(optimizer_path))
-            else:
-                print(f'Warning: Optimizer state file not found. Using fresh optimizer.')
+            print(f'Warning: Optimizer state file not found. Using fresh optimizer.')
+    
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
+    
     if resume_iteration > 0:
-        scheduler_path = os.path.join(logdir, 'last-scheduler-state.pt')
+        scheduler_path = os.path.join(logdir, f'scheduler-{resume_iteration}.pt')
         if os.path.exists(scheduler_path):
             scheduler.load_state_dict(torch.load(scheduler_path))
+            print(f"Loaded scheduler state from iteration {resume_iteration}")
         else:
             print(f'Warning: Scheduler state file not found. Using fresh scheduler state.')
+    
     summary(model)
     best_rpa, best_rca, best_it = 0, 0, 0
     data_iterator = cycle(data_loader)
+    
     if resume_iteration > 0:
-        print(f"Resuming from iteration {resume_iteration}. Syncing DataLoader...")
+        print(f"Syncing DataLoader to iteration {resume_iteration}...")
         for _ in tqdm(range(resume_iteration), desc="Syncing data"):
             next(data_iterator)
     
@@ -120,9 +148,9 @@ def train(weight_pe):
             
             print(f'RPA: {rpa}%, RCA: {rca}%, OA: {oa}%')
 
-            torch.save(model, os.path.join(logdir, f'model-{i}.pt'))
-            torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
-            torch.save(scheduler.state_dict(), os.path.join(logdir, 'last-scheduler-state.pt'))
+            torch.save(model.state_dict(), os.path.join(logdir, f'model-{i}.pt'))
+            torch.save(optimizer.state_dict(), os.path.join(logdir, f'optimizer-{i}.pt'))
+            torch.save(scheduler.state_dict(), os.path.join(logdir, f'scheduler-{i}.pt'))
 
             with open(os.path.join(logdir, 'result.txt'), 'a') as f:
                 f.write(f'{i}\t')
