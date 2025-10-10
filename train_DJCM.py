@@ -119,21 +119,23 @@ def train(weight_pe):
             oa = np.round(np.mean(metrics['OA']) * 100, 2)
             
             print(f'RPA: {rpa}%, RCA: {rca}%, OA: {oa}%')
+
+            torch.save(model, os.path.join(logdir, f'model-{i}.pt'))
+            torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
+            torch.save(scheduler.state_dict(), os.path.join(logdir, 'last-scheduler-state.pt'))
+
+            with open(os.path.join(logdir, 'result.txt'), 'a') as f:
+                f.write(f'{i}\t')
+                f.write(f'{rpa}±{np.round(np.std(metrics["RPA"]) * 100, 2)}\t')
+                f.write(f'{rca}±{np.round(np.std(metrics["RCA"]) * 100, 2)}\t')
+                f.write(f'{oa}±{np.round(np.std(metrics["OA"]) * 100, 2)}\n')
             
             if rpa >= best_rpa:
                 best_rpa, best_rca, best_it = rpa, rca, i
                 print(f'New best model at epoch {epoch+1}!')
                 
-                with open(os.path.join(logdir, 'result.txt'), 'a') as f:
-                    f.write(f'{i}\t')
-                    f.write(f'{best_rpa}±{np.round(np.std(metrics["RPA"]) * 100, 2)}\t')
-                    f.write(f'{best_rca}±{np.round(np.std(metrics["RCA"]) * 100, 2)}\t')
-                    f.write(f'{oa}±{np.round(np.std(metrics["OA"]) * 100, 2)}\n')
                 
-                torch.save(model, os.path.join(logdir, f'model-{i}.pt'))
-                torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
-                torch.save(scheduler.state_dict(), os.path.join(logdir, 'last-scheduler-state.pt'))
-        
+                
         if i - best_it >= epoch_nums * early_stop_epochs:
             print(f'Early stopping at epoch {epoch+1}')
             print(f'Best iteration: {best_it}, RPA: {best_rpa}%')
