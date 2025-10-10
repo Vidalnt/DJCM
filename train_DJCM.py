@@ -39,7 +39,7 @@ def train(weight_pe):
     hop_length_ms = (hop_length / SAMPLE_RATE) * 1000
     logdir = 'runs/MIR1K_VPE_Only/' + 'nblocks' + str(n_blocks) + '_latent' + str(latent_layers) + '_frames' + str(seq_frames) \
              + '_alpha' + str(alpha) + '_gamma' + str(gamma) + '_pe' + str(weight_pe) + '_gateT'
-    pitch_th = 0.5
+    pitch_th = 0.03
     learning_rate = 5e-4
     batch_size = 16
     clip_grad_norm = 3
