@@ -291,40 +291,42 @@ class TimbreFilter(nn.Module):
         return out_tensors
 
 class PE_Decoder(nn.Module):
-    def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False, use_se=False):
+    def __init__(self, n_blocks, seq_frames, seq='gru', seq_layers=1, gate=False, use_se=False, output_channels=1):
         super(PE_Decoder, self).__init__()
+        self.output_channels = output_channels
         self.de_blocks = Decoder(n_blocks, gate, use_se=use_se)
         self.tf = TimbreFilter([(32, 0), (64, 0), (128, 0), (256, 0), (384, 0), (384, 0)], use_se=use_se)
         self.after_conv1 = EncoderBlock(32, 32, n_blocks, None, False, use_se=use_se)
-        self.after_conv2 = nn.Conv2d(32, 1, (1, 1))
+        self.after_conv2 = nn.Conv2d(32, self.output_channels, (1, 1))
         init_layer(self.after_conv2)
         if seq.lower() == 'gru':
             self.fc = nn.Sequential(
-                BiGRU((seq_frames, N_MELS), (1, N_MELS), 1, seq_layers),
-                nn.Linear(N_MELS, N_CLASS),
+                BiGRU((seq_frames, N_MELS), (1, N_MELS), self.output_channels, seq_layers),
+                nn.Linear(self.output_channels * N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
         elif seq.lower() == 'lstm':
             self.fc = nn.Sequential(
-                BiLSTM((seq_frames, N_MELS), (1, N_MELS), 1, seq_layers),
-                nn.Linear(N_MELS, N_CLASS),
+                BiLSTM((seq_frames, N_MELS), (1, N_MELS), self.output_channels, seq_layers),
+                nn.Linear(self.output_channels * N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
         elif seq.lower() == "transformer":
             self.fc = nn.Sequential(
                 TransformerBlock(
-                    input_dim=N_MELS, 
+                    in_channels=self.output_channels, 
+                    n_mels=N_MELS, 
                     n_heads=8, 
-                    dim_feedforward=N_MELS * 4,
+                    dim_feedforward=4,
                     n_layers=2
                 ),
-                nn.Linear(N_MELS, N_CLASS),
+                nn.Linear(self.output_channels * N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
         else:
             self.fc = nn.Sequential(
                 Rearrange('b c t f -> b t (c f)'),
-                nn.Linear(N_MELS, N_CLASS),
+                nn.Linear(self.output_channels * N_MELS, N_CLASS),
                 nn.Sigmoid()
             )
 

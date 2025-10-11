@@ -46,13 +46,13 @@ class TransformerBlock(nn.Module):
              dependencies regardless of their distance, overcoming the limitations of
              recurrent and purely convolutional models for sequence understanding.
     """
-    def __init__(self, in_channels, n_mels, seq_frames, n_heads, dim_feedforward, n_layers, dropout=0.1):
+    def __init__(self, in_channels, n_mels, n_heads, dim_feedforward, n_layers, dropout=0.1):
         super(TransformerBlock, self).__init__()
         self.rearrange = Rearrange('b c t f -> b t (c f)')
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=in_channels * n_mels, 
             nhead=n_heads, 
-            dim_feedforward=dim_feedforward, 
+            dim_feedforward=in_channels * n_mels * dim_feedforward, 
             dropout=dropout,
             batch_first=True
         )
